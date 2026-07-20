@@ -18,9 +18,7 @@ A one-command installer for a self-hosted [AIOStreams](https://github.com/Viren0
 ## Quick start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alpinezx/aiostreams-quickstart/main/setup-aiostreams.sh -o setup-aiostreams.sh
-chmod +x setup-aiostreams.sh
-sudo ./setup-aiostreams.sh
+curl -fsSL https://raw.githubusercontent.com/alpinezx/aiostreams-quickstart/refs/heads/main/setup-aiostreams.sh -o setup-aiostreams.sh && sudo bash setup-aiostreams.sh
 ```
 
 The script will ask you for:
