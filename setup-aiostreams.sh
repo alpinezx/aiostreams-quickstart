@@ -24,6 +24,70 @@ require_cmd() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Auto-detects RAM, decides whether swap is needed, sizes it safely against
+# available disk space, and creates it. Skips cleanly if swap already exists
+# or if RAM is already above 1GB.
+setup_swap() {
+    local total_ram_mb swap_mb avail_disk_mb max_safe_swap_mb
+
+    total_ram_mb=$(free -m | awk '/^Mem:/{print $2}')
+    info "Detected ${total_ram_mb}MB RAM"
+
+    if [[ "$total_ram_mb" -gt 1024 ]]; then
+        echo "System has more than 1GB RAM — a swap file isn't necessary. Skipping."
+        return 0
+    fi
+
+    if swapon --show 2>/dev/null | grep -q .; then
+        echo "Swap is already configured, skipping."
+        return 0
+    fi
+
+    # Recommended size: ~2x RAM for low-RAM systems, capped at 4GB (diminishing
+    # returns beyond that), rounded up to the nearest 256MB.
+    swap_mb=$(( total_ram_mb * 2 ))
+    if [[ "$swap_mb" -gt 4096 ]]; then
+        swap_mb=4096
+    fi
+    swap_mb=$(( ( (swap_mb + 255) / 256 ) * 256 ))
+
+    # Don't let the swap file eat more than 25% of free disk space, and always
+    # leave at least 1GB free afterward.
+    avail_disk_mb=$(df --output=avail -m / | tail -n1 | tr -d ' ')
+    max_safe_swap_mb=$(( avail_disk_mb / 4 ))
+    if [[ "$swap_mb" -gt "$max_safe_swap_mb" ]]; then
+        swap_mb="$max_safe_swap_mb"
+    fi
+
+    if [[ "$swap_mb" -lt 256 || $(( avail_disk_mb - swap_mb )) -lt 1024 ]]; then
+        warn "Not enough free disk space (${avail_disk_mb}MB available) to safely create a swap file. Skipping."
+        return 1
+    fi
+
+    info "Creating a ${swap_mb}MB swap file (based on ${total_ram_mb}MB RAM and ${avail_disk_mb}MB free disk)"
+
+    if ! fallocate -l "${swap_mb}M" /swapfile 2>/dev/null; then
+        dd if=/dev/zero of=/swapfile bs=1M count="$swap_mb"
+    fi
+
+    chmod 600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile
+
+    if ! grep -q '^/swapfile' /etc/fstab; then
+        echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    fi
+
+    if swapon --show 2>/dev/null | grep -q '/swapfile'; then
+        echo "Swap file created and activated successfully (${swap_mb}MB)."
+        free -h
+        return 0
+    else
+        warn "Swap setup ran, but /swapfile doesn't show as active. Check manually with: swapon --show"
+        return 1
+    fi
+}
+
 INSTALL_DIR="$HOME/aiostreams"
 COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 CADDYFILE="$INSTALL_DIR/Caddyfile"
@@ -50,9 +114,10 @@ if [[ -f "$COMPOSE_FILE" ]]; then
     echo "  3) Update (pull latest images + restart)"
     echo "  4) Reconfigure (change domain/login, backs up current config)"
     echo "  5) Uninstall (clean removal)"
-    echo "  6) Exit"
+    echo "  6) Check / set up swap space (recommended for servers with less than 1GB RAM)"
+    echo "  7) Exit"
     echo ""
-    read -rp "Select an option [1-6]: " MENU_CHOICE
+    read -rp "Select an option [1-7]: " MENU_CHOICE
 
     case "$MENU_CHOICE" in
         1)
@@ -125,6 +190,14 @@ if [[ -f "$COMPOSE_FILE" ]]; then
             exit 0
             ;;
         6)
+            echo ""
+            echo "=== Swap Status ==="
+            free -h
+            echo ""
+            setup_swap
+            exit 0
+            ;;
+        7)
             echo "Exiting."
             exit 0
             ;;
@@ -204,6 +277,10 @@ while true; do
     fi
     break
 done
+
+# ---------- swap setup for low-RAM servers ----------
+
+setup_swap
 
 # ---------- install Docker if missing ----------
 
