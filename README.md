@@ -53,3 +53,7 @@ Run it again any time from the same directory (`~/aiostreams`) and it'll detect 
 - Your `SECRET_KEY` is generated on first install and saved to `~/aiostreams/CREDENTIALS.txt` — move it somewhere safe and delete it from the server. It can't be changed later without invalidating stored configs, and it's automatically preserved across any future Reconfigure runs.
 - The Caddy login only protects the homepage, `/stremio/configure`, and `/dashboard`. Your installed Stremio addon keeps working uninterrupted, since stream/manifest URLs aren't behind that login wall.
 - Tested through fresh install, cert reuse on reinstall, and all six management menu options.
+
+## Further hardening (optional)
+
+- [Security & Hardening](./docs/security-hardening.md) — SSH key-only login, fail2ban, and UFW. Read the disclaimers before running anything.
