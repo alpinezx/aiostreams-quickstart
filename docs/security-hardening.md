@@ -35,6 +35,26 @@ they're about keeping the VPS itself tidy and hard to break into.
 - Keep your current terminal session open throughout this whole process. Don't close it until everything is fully tested and working in a **separate, new** session.
 - Some VPS providers layer their own SSH password toggle in the control panel on top of the server's own config — check there too if changes to `sshd_config` don't seem to take effect.
 
+### 1a. If you don't have a key on the server yet
+
+If you reinstalled the OS after originally adding a key in your provider's control panel, the reinstall may not have carried it over — some providers only inject the key at first install, not on reinstall. Check first:
+
+```bash
+cat ~/.ssh/authorized_keys
+```
+
+If that's empty or missing, and you already have an SSH key pair on your own machine (don't generate a new one if you don't need to — reuse your existing one), add your **existing public key** manually while you're still logged in with the password:
+
+```bash
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+echo "ssh-ed25519 AAAA...your-full-key... your-comment" >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+cat ~/.ssh/authorized_keys   # confirm it's there
+```
+
+Grab your public key from your local machine first if you don't have it handy: `cat ~/.ssh/id_ed25519.pub` (Mac/Linux) or `type $env:USERPROFILE\.ssh\id_ed25519.pub` (Windows PowerShell). Then test logging in via key in a **new** terminal/tab before continuing — don't move on to disabling password login until key-based login is confirmed working.
+
 ### Steps
 
 1. Edit the main config:
@@ -48,9 +68,9 @@ PermitRootLogin prohibit-password
 PasswordAuthentication no
 ```
 
-3. Save and exit (`Ctrl+O`, Enter, `Ctrl+X`), then restart SSH:
+3. Save and exit (`Ctrl+O`, Enter, `Ctrl+X`), then restart SSH. Note: despite the config file being named `sshd_config`, the systemd service on Ubuntu/Debian is usually just called `ssh`, not `sshd` — the latter will fail with "Unit sshd.service not found":
 ```bash
-   sudo systemctl restart sshd
+   sudo systemctl restart ssh
 ```
 
 4. **Without closing your current session**, open a brand new terminal/tab and test:
