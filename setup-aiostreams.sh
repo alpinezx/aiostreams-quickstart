@@ -111,6 +111,27 @@ harden_server() {
         echo "(A high 'Total failed' count is normal — that's internet bot noise, not you being targeted.)"
     fi
 
+    # Known fail2ban packaging bug: the default filter.d/sshd.conf hardcodes
+    # "journalmatch = _SYSTEMD_UNIT=sshd.service", but on Debian/Ubuntu the
+    # actual systemd unit is "ssh.service", not "sshd.service". Left as-is,
+    # fail2ban runs, reports "active", and looks fine in status output —
+    # but silently matches zero journal entries and never bans anyone.
+    # This runs every time (idempotent, no lockout risk either way — unlike
+    # the SSH password step, there's no way this makes things worse) so
+    # both fresh installs and pre-existing ones get corrected.
+    SSH_UNIT="ssh.service"
+    if systemctl list-unit-files 2>/dev/null | grep -q "^sshd\.service"; then
+        SSH_UNIT="sshd.service"
+    fi
+    cat > /etc/fail2ban/jail.d/sshd.local <<EOF
+[sshd]
+enabled = true
+backend = systemd
+journalmatch = _SYSTEMD_UNIT=${SSH_UNIT}
+EOF
+    systemctl restart fail2ban
+    echo "fail2ban's SSH journal filter verified/corrected (watching ${SSH_UNIT})."
+
     # --- UFW ---
     if require_cmd ufw && ufw status 2>/dev/null | grep -q "Status: active"; then
         echo "UFW is already active, ensuring rules for 22/80/443 are present..."

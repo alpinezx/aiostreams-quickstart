@@ -125,6 +125,66 @@ Don't be alarmed if "Total failed" is already high within minutes of installing 
 
 **Note**: this jail only watches SSH (port 22). It has no effect on the AIOStreams web login — that has its own built-in rate limiter (5 attempts per 5 minutes per IP), so family or friends mistyping the AIOStreams password get a short cool-down from the app itself, not a firewall ban.
 
+### Troubleshooting: "Currently failed" and "Total failed" stay at 0 forever
+
+If you're on Ubuntu/Debian and `sudo fail2ban-client status sshd` shows `0` for
+both counts no matter how much internet bot traffic your server sees — and
+especially if the output includes this line:
+
+```
+Journal matches:  _SYSTEMD_UNIT=sshd.service + _COMM=sshd
+```
+
+that's a real bug in fail2ban's shipped default filter
+(`/etc/fail2ban/filter.d/sshd.conf`). It hardcodes the systemd unit name as
+`sshd.service`, but on Debian/Ubuntu the actual unit is `ssh.service` (no
+"d"). Because of the mismatch, fail2ban runs, reports itself as active, and
+*looks* completely fine in status output — while silently matching zero
+journal entries and never banning anyone. It's easy to miss since nothing
+about it looks broken until you actually test it.
+
+**Fix**, without editing fail2ban's own shipped file (so package updates
+don't wipe your change):
+
+```bash
+sudo nano /etc/fail2ban/jail.d/sshd.local
+```
+```ini
+[sshd]
+enabled = true
+backend = systemd
+journalmatch = _SYSTEMD_UNIT=ssh.service
+```
+```bash
+sudo systemctl restart fail2ban
+```
+
+**Confirm it's actually watching the right place now:**
+
+```bash
+sudo fail2ban-client status sshd
+```
+
+The `Journal matches` line should now read `_SYSTEMD_UNIT=ssh.service`.
+
+**Prove it's catching real attempts** (not just pointed the right way in
+theory) by deliberately failing a login a couple of times from another
+machine or terminal:
+
+```bash
+ssh -o PreferredAuthentications=password -o PubkeyAuthentication=no wronguser@YOUR_SERVER_IP
+```
+
+Then re-check status — `Currently failed` should increment. If it stayed at
+`0` before this fix and increments after, that's confirmation the fix
+worked.
+
+> If you installed fail2ban via this project's setup script (menu option 7,
+> or the prompt at the end of a fresh install), this is now handled for you
+> automatically — the script detects the correct unit name and writes this
+> same override on every run. This section is here for anyone setting up
+> fail2ban manually, or checking an install from before this fix existed.
+
 ### Useful commands
 
 ```bash
