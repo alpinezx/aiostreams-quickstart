@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 #
 # AIOStreams self-hosted install & management script
-# Sets up AIOStreams + Caddy (HTTPS via Let's Encrypt) in Docker,
-# and locks the homepage/configure/dashboard pages behind Caddy basic auth.
+# Sets up AIOStreams + Caddy (HTTPS via Let's Encrypt) in Docker.
+# Access control uses AIOStreams' built-in login (AIOSTREAMS_AUTH +
+# AIOSTREAMS_AUTH_REQUIRED), which protects the configure page, the
+# dashboard, AND the underlying config API — so nobody can create or
+# modify configs on your instance without logging in.
 #
 # Can also manage an existing installation (status, restart, update, uninstall).
 #
@@ -194,7 +197,7 @@ if [[ -f "$COMPOSE_FILE" ]]; then
             echo "=== Swap Status ==="
             free -h
             echo ""
-            setup_swap
+            setup_swap || true
             exit 0
             ;;
         7)
@@ -211,7 +214,7 @@ else
     echo "  - Docker (installed automatically if missing)"
     echo "  - AIOStreams (the Stremio meta-addon)"
     echo "  - Caddy (reverse proxy with automatic HTTPS via Let's Encrypt)"
-    echo "  - Basic auth protecting the homepage/configure/dashboard pages"
+    echo "  - AIOStreams' built-in login, locking config creation/editing to your account only"
     echo ""
     read -rp "Press Enter to continue, or Ctrl+C to cancel..."
 fi
@@ -257,16 +260,37 @@ else
 fi
 
 echo ""
-read -rp "Username for logging into the AIOStreams homepage/configure/dashboard: " AUTH_USER
-if [[ -z "$AUTH_USER" ]]; then
-    error "Username cannot be empty."
-fi
+while true; do
+    read -rp "Username for logging into AIOStreams (configure page + dashboard): " AUTH_USER
+    if [[ -z "$AUTH_USER" ]]; then
+        warn "Username cannot be empty."
+        continue
+    fi
+    # AIOSTREAMS_AUTH is a comma-separated list of user:pass pairs, so these
+    # characters would break the format. Keep it to simple safe characters.
+    if [[ ! "$AUTH_USER" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        warn "Username can only contain letters, numbers, dots, underscores, and hyphens."
+        continue
+    fi
+    break
+done
 
 while true; do
     read -rsp "Password for that account (input hidden): " AUTH_PASS
     echo ""
     if [[ -z "$AUTH_PASS" ]]; then
         warn "Password cannot be empty. Try again."
+        continue
+    fi
+    if [[ ${#AUTH_PASS} -lt 8 ]]; then
+        warn "Please use at least 8 characters."
+        continue
+    fi
+    # The password is stored in the AIOSTREAMS_AUTH env var (user:pass,user:pass
+    # format) inside docker-compose.yml, so ':' ',' and shell/YAML-special
+    # characters would break things. Letters, numbers, and these symbols are safe:
+    if [[ ! "$AUTH_PASS" =~ ^[A-Za-z0-9@%^*_+=.!?-]+$ ]]; then
+        warn "Password can only contain letters, numbers, and these symbols: @ % ^ * _ + = . ! ? -"
         continue
     fi
     read -rsp "Confirm password: " AUTH_PASS_CONFIRM
@@ -280,7 +304,9 @@ done
 
 # ---------- swap setup for low-RAM servers ----------
 
-setup_swap
+# '|| true' matters here: under 'set -e', setup_swap returning 1 (e.g. not
+# enough disk space for a swap file) would otherwise abort the whole install.
+setup_swap || true
 
 # ---------- install Docker if missing ----------
 
@@ -313,14 +339,6 @@ else
     SECRET_KEY=$(openssl rand -hex 32)
 fi
 
-info "Hashing your login password for Caddy (never stored in plaintext)"
-docker pull caddy:latest >/dev/null
-HASHED_PASS=$(docker run --rm caddy:latest caddy hash-password --plaintext "$AUTH_PASS")
-
-if [[ -z "$HASHED_PASS" || "$HASHED_PASS" != \$2* ]]; then
-    error "Password hashing failed or produced unexpected output. Got: '$HASHED_PASS'"
-fi
-
 # ---------- write docker-compose.yml ----------
 
 info "Writing docker-compose.yml"
@@ -336,6 +354,10 @@ services:
       - PORT=3000
       - BASE_URL=https://${DOMAIN}
       - SECRET_KEY=${SECRET_KEY}
+      # Built-in login: protects the configure page, dashboard, AND the
+      # config API itself — nobody can create/edit configs without this login.
+      - AIOSTREAMS_AUTH=${AUTH_USER}:${AUTH_PASS}
+      - AIOSTREAMS_AUTH_REQUIRED=true
   caddy:
     image: caddy:latest
     container_name: caddy
@@ -354,17 +376,15 @@ volumes:
   caddy_config:
 EOF
 
+# The compose file now contains your login password (AIOSTREAMS_AUTH), so
+# make it readable by root only.
+chmod 600 docker-compose.yml
+
 # ---------- write Caddyfile ----------
 
-info "Writing Caddyfile (protects homepage, /stremio/configure, and /dashboard with login; leaves stream/manifest URLs open for Stremio itself)"
+info "Writing Caddyfile (HTTPS reverse proxy; access control is handled by AIOStreams' own login)"
 cat > Caddyfile << EOF
 ${DOMAIN} {
-    @protected {
-        path / /stremio/configure* /dashboard*
-    }
-    basic_auth @protected {
-        ${AUTH_USER} ${HASHED_PASS}
-    }
     reverse_proxy aiostreams:3000
 }
 EOF
@@ -433,7 +453,12 @@ AIOStreams self-hosted setup — credentials generated on $(date)
 
 Site URL:         https://${DOMAIN}
 Login username:   ${AUTH_USER}
-Login password:   (the one you typed in — not stored here in plaintext, write it down separately if needed)
+Login password:   (the one you typed in — write it down in your password manager)
+
+Note: the username & password also live in ~/aiostreams/docker-compose.yml
+(the AIOSTREAMS_AUTH line) because AIOStreams reads them from there on startup.
+That file is readable by root only (chmod 600). If you ever change the
+password, edit that line and run: docker compose up -d
 
 SECRET_KEY (do NOT lose this — cannot be changed later without resetting stored configs):
 ${SECRET_KEY}
@@ -448,11 +473,16 @@ chmod 600 "$CREDS_FILE"
 info "Done!"
 echo ""
 echo "Visit: https://${DOMAIN}"
-echo "You'll be prompted to log in with the username/password you just set."
+echo "Log in with the username/password you just set (AIOStreams' own login page)."
+echo ""
+echo "Config creation and editing now require that login — including the API,"
+echo "not just the web pages — so nobody else can piggyback on your instance."
 echo ""
 echo "IMPORTANT:"
 echo "  - Your SECRET_KEY and login username are saved to: $CREDS_FILE"
 echo "  - Move that file somewhere safe (off the server) and then delete it — it currently sits in plaintext on disk."
+echo "  - If you already had a config from before this change: open the configure page,"
+echo "    log in, and hit Save once so it picks up the new access protection."
 echo "  - Next step in AIOStreams itself: go to Services, add your debrid provider's API key, then Addons > Marketplace to add a scraper (Torrentio, Comet, etc.)."
 echo ""
 echo "Useful commands:"
