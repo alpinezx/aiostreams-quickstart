@@ -1,3 +1,28 @@
+## 0. How these steps fit with the built-in protection
+
+The setup script already gives you the most important layer: AIOStreams' own
+login (`AIOSTREAMS_AUTH` + `AIOSTREAMS_AUTH_REQUIRED=true`). That locks config
+creation and editing — the web pages *and* the underlying API — behind your
+username and password, and the app rate-limits its login endpoint (5 attempts
+per 5-minute window per IP by default), so brute-forcing the web login is
+impractical.
+
+The steps below harden a different attack surface: **the server itself**,
+mainly SSH on port 22. Think of it as layers that don't overlap:
+
+| Layer | Protects | Provided by |
+| --- | --- | --- |
+| App login + rate limiting | AIOStreams configs & dashboard (web + API) | Setup script (already done) |
+| HTTPS | Traffic between you and the server | Caddy (already done) |
+| SSH key-only login | Server shell access | Section 1 below |
+| fail2ban | SSH brute-force noise | Section 2 below |
+| UFW | Accidentally exposed ports | Section 3 below |
+
+None of the sections below are required for the AIOStreams protection to work —
+they're about keeping the VPS itself tidy and hard to break into.
+
+---
+
 ## 1. Disable SSH password login (key-only + root login lockdown)
 
 > Tested on Ubuntu 26.04 LTS ("Resolute Raccoon"). Steps should be similar on other Debian-based distros, but file paths/behavior may differ slightly — proceed carefully if you're on something else.
@@ -78,7 +103,7 @@ sudo fail2ban-client status sshd
 
 Don't be alarmed if "Total failed" is already high within minutes of installing — every internet-facing IP gets constant automated login attempts. That's normal background noise, not something targeting you specifically.
 
-**Note**: this jail only watches SSH (port 22). It has no effect on your AIOStreams/Caddy login page — family or friends mistyping the AIOStreams password won't get banned by this.
+**Note**: this jail only watches SSH (port 22). It has no effect on the AIOStreams web login — that has its own built-in rate limiter (5 attempts per 5 minutes per IP), so family or friends mistyping the AIOStreams password get a short cool-down from the app itself, not a firewall ban.
 
 ### Useful commands
 
@@ -111,3 +136,49 @@ sudo ufw enable
 ### After enabling, verify nothing broke
 
 Visit your AIOStreams URL in a browser and confirm it still loads. If it doesn't, that's the Docker/iptables bypass issue — a deeper fix involves configuring Docker's daemon to not manage iptables directly (`"iptables": false` in `/etc/docker/daemon.json`) and managing container ports through UFW's Docker-specific chain instead. This is a more involved change; only pursue it if you specifically need UFW to control container-published ports, which isn't necessary for this project's default setup.
+---
+
+## 4. Credentials housekeeping (do this once, takes two minutes)
+
+The installer writes a file called `CREDENTIALS.txt` into `~/aiostreams`
+containing your `SECRET_KEY` and login username. It exists so the key doesn't
+vanish into terminal scrollback — but it's not meant to live on the server
+long-term.
+
+### Why it matters
+
+- The `SECRET_KEY` encrypts every stored config on your instance. It **cannot
+  be changed** later without invalidating them, and it **cannot be recovered**
+  if lost. It's the one thing you must keep a copy of somewhere safe.
+- Anything sitting in plaintext on the server is one compromise away from
+  being read. Off the server, it isn't.
+
+### Steps
+
+1. Open the file and copy its contents somewhere safe — a password manager
+   entry is ideal:
+```bash
+   cat ~/aiostreams/CREDENTIALS.txt
+```
+2. Store the `SECRET_KEY` and your login username/password in that safe place.
+3. Delete the file from the server:
+```bash
+   rm ~/aiostreams/CREDENTIALS.txt
+```
+
+### What stays on the server (and that's okay)
+
+Your login also lives in `~/aiostreams/docker-compose.yml` on the
+`AIOSTREAMS_AUTH` line — AIOStreams reads it from there every time it starts,
+so that one has to stay. The script sets that file to root-only permissions
+(`chmod 600`). The same file contains your `SECRET_KEY` for the same reason,
+which is exactly why having an off-server copy from the steps above matters:
+if the server ever dies, the compose file dies with it.
+
+### If you ever need to restore from scratch
+
+With your off-server `SECRET_KEY`, a backup of `~/aiostreams/data`, and your
+domain pointed at a new server, you can re-run the setup script, let it
+generate a fresh compose file, put your old `SECRET_KEY` back on the
+`SECRET_KEY=` line, restore the `data` folder, and `docker compose up -d` —
+your configs come back exactly as they were.
