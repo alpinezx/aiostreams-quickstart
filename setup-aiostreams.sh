@@ -91,6 +91,46 @@ setup_swap() {
     fi
 }
 
+# Installs fail2ban (SSH brute-force protection) and UFW (firewall allowing
+# only 22/80/443). Idempotent: skips anything already installed and active.
+# Deliberately does NOT touch SSH password settings — that's a manual,
+# check-every-step process; see docs/security-hardening.md section 1.
+harden_server() {
+    info "Server hardening: fail2ban + UFW"
+
+    apt-get update -qq || { warn "apt update failed — check your network and try again."; return 1; }
+
+    # --- fail2ban ---
+    if systemctl is-active --quiet fail2ban 2>/dev/null; then
+        echo "fail2ban is already installed and running, skipping."
+    else
+        echo "Installing fail2ban (bans IPs that repeatedly fail SSH login)..."
+        apt-get install -y -qq fail2ban || { warn "fail2ban install failed."; return 1; }
+        systemctl enable --now fail2ban
+        echo "fail2ban is active. Check it any time with: fail2ban-client status sshd"
+        echo "(A high 'Total failed' count is normal — that's internet bot noise, not you being targeted.)"
+    fi
+
+    # --- UFW ---
+    if require_cmd ufw && ufw status 2>/dev/null | grep -q "Status: active"; then
+        echo "UFW is already active, ensuring rules for 22/80/443 are present..."
+    else
+        echo "Installing and enabling UFW (firewall)..."
+        apt-get install -y -qq ufw || { warn "UFW install failed."; return 1; }
+    fi
+    # Allow required ports BEFORE enabling, so an active SSH session is never cut off.
+    ufw allow 22/tcp  >/dev/null
+    ufw allow 80/tcp  >/dev/null
+    ufw allow 443/tcp >/dev/null
+    ufw --force enable >/dev/null
+    echo "UFW is active: only ports 22 (SSH), 80 and 443 (web) are open."
+    echo ""
+    echo "Note: Docker publishes ports 80/443 by writing its own firewall rules underneath"
+    echo "UFW, so those stay reachable regardless — which is fine, they're meant to be public."
+    echo "UFW's job here is stopping anything ELSE from being accidentally exposed later."
+    return 0
+}
+
 INSTALL_DIR="$HOME/aiostreams"
 COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 CADDYFILE="$INSTALL_DIR/Caddyfile"
@@ -118,9 +158,10 @@ if [[ -f "$COMPOSE_FILE" ]]; then
     echo "  4) Reconfigure (change domain/login, backs up current config)"
     echo "  5) Uninstall (clean removal)"
     echo "  6) Check / set up swap space (recommended for servers with less than 1GB RAM)"
-    echo "  7) Exit"
+    echo "  7) Harden server (install fail2ban + UFW firewall)"
+    echo "  8) Exit"
     echo ""
-    read -rp "Select an option [1-7]: " MENU_CHOICE
+    read -rp "Select an option [1-8]: " MENU_CHOICE
 
     case "$MENU_CHOICE" in
         1)
@@ -201,6 +242,11 @@ if [[ -f "$COMPOSE_FILE" ]]; then
             exit 0
             ;;
         7)
+            echo ""
+            harden_server || warn "Hardening did not fully complete — see messages above. Safe to re-run any time."
+            exit 0
+            ;;
+        8)
             echo "Exiting."
             exit 0
             ;;
@@ -467,6 +513,17 @@ Reminder: move this file somewhere safe (password manager, encrypted notes) and 
   rm ${CREDS_FILE}
 EOF
 chmod 600 "$CREDS_FILE"
+
+# ---------- optional hardening ----------
+
+echo ""
+read -rp "Also install fail2ban + UFW firewall now? Recommended, safe, and re-runnable. [y/N]: " DO_HARDEN
+if [[ "$DO_HARDEN" =~ ^[Yy]$ ]]; then
+    harden_server || warn "Hardening did not fully complete — see messages above. Re-run via the menu (option 7) any time."
+else
+    echo "Skipped. You can run it later via the management menu (option 7),"
+    echo "or follow docs/security-hardening.md manually."
+fi
 
 # ---------- summary ----------
 

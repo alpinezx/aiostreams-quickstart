@@ -57,8 +57,11 @@ Run it again any time from the same directory (`~/aiostreams`) and it'll detect 
 4) Reconfigure (change domain/login — backs up your current config first)
 5) Uninstall (clean removal)
 6) Check / set up swap space (recommended for servers with less than 1GB RAM)
-7) Exit
+7) Harden server (install fail2ban + UFW firewall)
+8) Exit
 ```
+
+Fresh installs also offer the fail2ban + UFW step at the end. It's idempotent — safe to run repeatedly — and always allows SSH (port 22) *before* enabling the firewall, so it can't cut off your session. SSH key-only login is deliberately **not** automated: it's the one step that can lock you out of your own server if a prerequisite isn't right, so it stays a careful manual process — see [Security & Hardening](./docs/security-hardening.md).
 
 ## Notes
 
