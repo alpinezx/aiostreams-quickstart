@@ -89,6 +89,10 @@ If step 4 still prompts for a password despite your `sshd_config` looking correc
 sudo grep -r "PasswordAuthentication" /etc/ssh/sshd_config.d/
 ```
 
+```bash
+sudo nano /etc/ssh/sshd_config.d/50-cloud-init.conf
+```
+
 Either flip your provider's SSH password toggle off in their control panel (often auto-fixes this), or manually edit each file found above to say `PasswordAuthentication no`, then restart `sshd` again.
 
 ### Final check
