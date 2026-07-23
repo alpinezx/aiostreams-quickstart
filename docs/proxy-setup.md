@@ -16,6 +16,14 @@ This is a feature built into AIOStreams itself (not something this script
 installs) — this doc just covers where to find it and how to set it up
 sensibly.
 
+> ⚠️ **Bandwidth note:** unlike the rest of what this project sets up,
+> turning this on routes actual video data through your VPS, not just
+> lightweight config/API traffic. Keep an eye on your VPS provider's
+> bandwidth allowance if you use this heavily — this is the one part of the
+> setup that can meaningfully add to your monthly data usage. (If you also
+> add the [VPN layer](./vpn-setup.md) later, this same data may additionally
+> count against your VPN provider's allowance too.)
+
 ---
 
 ## Important: this is per-config, not instance-wide

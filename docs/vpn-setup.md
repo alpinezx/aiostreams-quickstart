@@ -11,6 +11,19 @@ container uses. Flip it on, and AIOStreams' outbound traffic (to TorBox,
 scrapers, etc.) exits through a WireGuard VPN server instead of your VPS's
 own IP. Flip it off, and it goes back to exiting through your VPS directly.
 
+> ⚠️ **Two things worth knowing before you set this up:**
+>
+> 1. **This does nothing on its own.** It only affects traffic that already
+>    passes through your VPS. If the [proxy](./proxy-setup.md) is off,
+>    playback devices talk to your debrid service directly, bypassing your
+>    VPS (and this VPN layer) entirely. Set up the proxy first — this is a
+>    follow-on layer, not a replacement for it.
+> 2. **Proxied video data uses real bandwidth**, on both ends now: your
+>    VPS's own allowance, and potentially your VPN provider's too if they
+>    cap data (many don't, but check). This was already true with the
+>    proxy alone; adding the VPN tunnel doesn't change the *amount* of data,
+>    just where it counts against.
+
 **Read this before anything else:** this cannot lock you out of your
 server. SSH, Caddy, and everything else stay on your VPS's normal network
 the entire time — only the AIOStreams container's traffic is ever affected.
