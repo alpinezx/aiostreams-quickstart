@@ -73,3 +73,24 @@ Fresh installs also offer the fail2ban + UFW step at the end. It's idempotent �
 ## Further hardening (optional)
 
 - [Security & Hardening](./docs/security-hardening.md) — SSH key-only login, fail2ban, and UFW. Read the disclaimers before running anything.
+
+## Bypassing ISP/debrid blocking (optional)
+
+- [Proxy Setup](./docs/proxy-setup.md) — using AIOStreams' built-in proxy so debrid traffic routes through your VPS instead of the playback device. Fixes streams that fail to load without a client-side VPN.
+- [VPN Setup](./docs/vpn-setup.md) — a follow-up layer for if your VPS's own IP ever gets blocked too. Adds a WireGuard VPN (via [gluetun](https://github.com/qdm12/gluetun)) that only the AIOStreams container uses, with an on/off/reconfigure menu (`setup-vpn-gluetun.sh`). Runs entirely inside Docker's network — it cannot affect SSH or the host. Start with the Proxy Setup guide first; the VPN layer only matters once the proxy is already on.
+
+## Repo structure
+
+```
+aiostreams-quickstart/
+├── setup-aiostreams.sh       # main installer + management menu
+├── setup-vpn-gluetun.sh      # optional VPN layer, see docs/vpn-setup.md
+├── README.md
+└── docs/
+    ├── security-hardening.md # SSH keys, fail2ban, UFW
+    ├── proxy-setup.md        # built-in AIOStreams proxy (bypass ISP blocking)
+    └── vpn-setup.md          # server-side VPN via gluetun (bypass VPS IP blocking)
+```
+
+Scripts live at the repo root; guides live in `docs/` and link out to
+whichever script they're walking you through.
